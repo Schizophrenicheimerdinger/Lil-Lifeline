@@ -190,62 +190,120 @@ export default function Home() {
         <p style={{ textAlign: 'center', color: '#555', marginBottom: 52, fontSize: 16 }}>
           Start free. Upgrade when you need more.
         </p>
-        <div style={{ display: 'flex', gap: 20, maxWidth: 680, margin: '0 auto', flexWrap: 'wrap', justifyContent: 'center' }}>
+
+        <div style={{ display: 'flex', gap: 20, maxWidth: 960, margin: '0 auto', flexWrap: 'wrap', justifyContent: 'center' }}>
+
           {/* Free */}
           <div style={{
-            flex: 1, minWidth: 260, background: '#111', border: '1px solid #222',
+            flex: 1, minWidth: 220, background: '#111', border: '1px solid #222',
             borderRadius: 16, padding: 28
           }}>
-            <div style={{ fontSize: 13, color: '#555', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Free</div>
-            <div style={{ fontSize: 42, fontWeight: 900, marginBottom: 4, color: 'white', letterSpacing: '-2px' }}>$0</div>
-            <div style={{ fontSize: 13, color: '#444', marginBottom: 24 }}>forever</div>
-            {['1 emergency contact', '24h check-in window', 'Email alert on miss', 'Works on any device'].map(f => (
-              <div key={f} style={{ display: 'flex', gap: 10, marginBottom: 10, fontSize: 14, color: '#888' }}>
-                <span style={{ color: '#4ade80' }}>✓</span> {f}
+            <div style={{ fontSize: 12, color: '#555', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Free</div>
+            <div style={{ fontSize: 38, fontWeight: 900, marginBottom: 2, color: 'white', letterSpacing: '-2px' }}>$0</div>
+            <div style={{ fontSize: 13, color: '#444', marginBottom: 20 }}>forever</div>
+            {[
+              '1 emergency contact',
+              '24h check-in window',
+              'Email alert on miss',
+              'Works on any device',
+            ].map(f => (
+              <div key={f} style={{ display: 'flex', gap: 10, marginBottom: 9, fontSize: 13, color: '#777' }}>
+                <span style={{ color: '#4ade80', flexShrink: 0 }}>✓</span> {f}
               </div>
             ))}
             <button onClick={() => { setShowAuth(true); setIsSignUp(true) }} style={{
-              width: '100%', marginTop: 24, padding: 12, fontSize: 14, fontWeight: 600,
+              width: '100%', marginTop: 22, padding: 11, fontSize: 14, fontWeight: 600,
               background: 'transparent', border: '1px solid #333', borderRadius: 8,
               cursor: 'pointer', color: '#ccc', fontFamily: 'inherit'
             }}>Get started free</button>
           </div>
+
           {/* Pro */}
           <div style={{
-            flex: 1, minWidth: 260, background: '#111',
-            border: '1px solid rgba(74,222,128,0.3)', borderRadius: 16, padding: 28,
+            flex: 1, minWidth: 220, background: '#111',
+            border: '1px solid rgba(74,222,128,0.35)', borderRadius: 16, padding: 28,
             position: 'relative', boxShadow: '0 0 30px rgba(74,222,128,0.08)'
           }}>
             <div style={{
               position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)',
               background: '#16a34a', color: 'white', fontSize: 11, fontWeight: 700,
               padding: '4px 14px', borderRadius: 20, whiteSpace: 'nowrap', letterSpacing: '0.06em'
-            }}>COMING SOON</div>
-            <div style={{ fontSize: 13, color: '#555', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pro</div>
-            <div style={{ fontSize: 42, fontWeight: 900, marginBottom: 4, color: 'white', letterSpacing: '-2px' }}>$5</div>
-            <div style={{ fontSize: 13, color: '#444', marginBottom: 24 }}>per month</div>
-            {['Multiple emergency contacts', 'Custom check-in timers', 'Repeated alert attempts', 'Check-in history', 'Lifeline link to another user'].map(f => (
-              <div key={f} style={{ display: 'flex', gap: 10, marginBottom: 10, fontSize: 14, color: '#888' }}>
-                <span style={{ color: '#4ade80' }}>✓</span> {f}
+            }}>MOST POPULAR</div>
+            <div style={{ fontSize: 12, color: '#555', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Pro</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+              <div style={{ fontSize: 38, fontWeight: 900, color: 'white', letterSpacing: '-2px' }}>$2.99</div>
+              <div style={{ fontSize: 13, color: '#444' }}>/month</div>
+            </div>
+            <div style={{ fontSize: 12, color: '#4ade80', marginBottom: 20 }}>or $24.99/year — save $11</div>
+            {[
+              'Everything in Free',
+              'Up to 5 emergency contacts',
+              'Custom check-in timers (12h–72h)',
+              'Repeated alert attempts',
+              'Check-in history',
+              'Lifeline link to another user',
+            ].map(f => (
+              <div key={f} style={{ display: 'flex', gap: 10, marginBottom: 9, fontSize: 13, color: '#777' }}>
+                <span style={{ color: '#4ade80', flexShrink: 0 }}>✓</span> {f}
               </div>
             ))}
             <button disabled style={{
-              width: '100%', marginTop: 24, padding: 12, fontSize: 14, fontWeight: 600,
-              background: '#1a1a1a', border: '1px solid #222', borderRadius: 8,
-              cursor: 'not-allowed', color: '#444', fontFamily: 'inherit'
+              width: '100%', marginTop: 22, padding: 11, fontSize: 14, fontWeight: 600,
+              background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)',
+              borderRadius: 8, cursor: 'not-allowed', color: '#4ade80',
+              fontFamily: 'inherit'
             }}>Coming soon</button>
+          </div>
+
+          {/* Family */}
+          <div style={{
+            flex: 1, minWidth: 220, background: '#111', border: '1px solid #2a2a2a',
+            borderRadius: 16, padding: 28, position: 'relative'
+          }}>
+            <div style={{
+              position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)',
+              background: '#1d4ed8', color: 'white', fontSize: 11, fontWeight: 700,
+              padding: '4px 14px', borderRadius: 20, whiteSpace: 'nowrap', letterSpacing: '0.06em'
+            }}>BEST VALUE</div>
+            <div style={{ fontSize: 12, color: '#555', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Family</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+              <div style={{ fontSize: 38, fontWeight: 900, color: 'white', letterSpacing: '-2px' }}>$7.99</div>
+              <div style={{ fontSize: 13, color: '#444' }}>/month</div>
+            </div>
+            <div style={{ fontSize: 12, color: '#60a5fa', marginBottom: 20 }}>Up to 5 members · $1.60 per person</div>
+            {[
+              'Everything in Pro',
+              '5 member accounts',
+              'Shared family dashboard',
+              'See all members\' check-in status',
+              'Group alert — notify whole family',
+              'One simple bill',
+            ].map(f => (
+              <div key={f} style={{ display: 'flex', gap: 10, marginBottom: 9, fontSize: 13, color: '#777' }}>
+                <span style={{ color: '#60a5fa', flexShrink: 0 }}>✓</span> {f}
+              </div>
+            ))}
+            <button disabled style={{
+              width: '100%', marginTop: 22, padding: 11, fontSize: 14, fontWeight: 600,
+              background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.25)',
+              borderRadius: 8, cursor: 'not-allowed', color: '#60a5fa',
+              fontFamily: 'inherit'
+            }}>Coming soon</button>
+          </div>
+
+        </div>
+
+        {/* Value callout */}
+        <div style={{
+          maxWidth: 480, margin: '40px auto 0', textAlign: 'center',
+          padding: '20px 24px', background: '#0f0f0f',
+          border: '1px solid #1f1f1f', borderRadius: 12
+        }}>
+          <div style={{ fontSize: 13, color: '#555', lineHeight: 1.7 }}>
+            💡 <span style={{ color: '#777' }}>At $2.99/month, Pro costs less than a coffee. The Family plan works out to just <strong style={{ color: '#60a5fa' }}>$1.60 per person</strong> — cheaper than any competitor.</span>
           </div>
         </div>
       </section>
-
-      {/* FOOTER */}
-      <footer style={{
-        textAlign: 'center', padding: '32px 24px',
-        fontSize: 13, color: '#333', borderTop: '1px solid #1a1a1a'
-      }}>
-        Lil Lifeline — a simple safety net for you and everyone you care about.
-      </footer>
-
       {/* AUTH MODAL */}
       {showAuth && (
         <div style={{
