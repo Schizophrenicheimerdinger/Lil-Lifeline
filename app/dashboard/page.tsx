@@ -4,311 +4,401 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
-// This describes the shape of our user data
 type Profile = {
   id: string
   email: string
   emergency_contact_email: string | null
   last_checkin: string
+  tier: string
+}
+
+type Notification = {
+  id: string
+  sender_email: string
+  message: string
+  read: boolean
+  created_at: string
 }
 
 export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [timeLeft, setTimeLeft] = useState(0) // seconds remaining
+  const [timeLeft, setTimeLeft] = useState(0)
   const [loading, setLoading] = useState(true)
   const [checkingIn, setCheckingIn] = useState(false)
+  const [justCheckedIn, setJustCheckedIn] = useState(false)
   const [contactEmail, setContactEmail] = useState('')
   const [savingContact, setSavingContact] = useState(false)
   const [contactSaved, setContactSaved] = useState(false)
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [showNotifications, setShowNotifications] = useState(false)
   const router = useRouter()
 
-  // Load user profile from database
   const loadProfile = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
-
-    // If not logged in, redirect to login page
-    if (!user) {
-      router.push('/')
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single()
-
-    if (error) {
-      console.error('Error loading profile:', error)
-      setLoading(false)
-      return
-    }
-
-    if (data) {
-      setProfile(data)
-      setContactEmail(data.emergency_contact_email || '')
-    }
+    if (!user) { router.push('/'); return }
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+    if (error) { setLoading(false); return }
+    if (data) { setProfile(data); setContactEmail(data.emergency_contact_email || '') }
     setLoading(false)
   }, [router])
 
-  // Run loadProfile when page first loads
-  useEffect(() => {
-    loadProfile()
-  }, [loadProfile])
+  const loadNotifications = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('recipient_email', user.email)
+      .order('created_at', { ascending: false })
+      .limit(20)
+    if (data) setNotifications(data)
+  }, [])
 
-  // Countdown timer — updates every second
+  useEffect(() => { loadProfile() }, [loadProfile])
+  useEffect(() => { loadNotifications() }, [loadNotifications])
+
   useEffect(() => {
     if (!profile) return
-
     const updateTimer = () => {
       const lastCI = new Date(profile.last_checkin).getTime()
-      const deadline = lastCI + 24 * 60 * 60 * 1000 // 24 hours in milliseconds
-      const remaining = Math.max(0, Math.floor((deadline - Date.now()) / 1000))
-      setTimeLeft(remaining)
+      const deadline = lastCI + 24 * 60 * 60 * 1000
+      setTimeLeft(Math.max(0, Math.floor((deadline - Date.now()) / 1000)))
     }
-
-    updateTimer() // Run immediately
-    const interval = setInterval(updateTimer, 1000) // Then every second
-    return () => clearInterval(interval) // Cleanup
+    updateTimer()
+    const interval = setInterval(updateTimer, 1000)
+    return () => clearInterval(interval)
   }, [profile])
 
-  // Format seconds into HH:MM:SS
-  function formatTime(seconds: number): string {
+  function formatTime(seconds: number) {
     const h = Math.floor(seconds / 3600)
     const m = Math.floor((seconds % 3600) / 60)
     const s = seconds % 60
-    return [h, m, s].map(n => String(n).padStart(2, '0')).join(':')
+    return { h: String(h).padStart(2, '0'), m: String(m).padStart(2, '0'), s: String(s).padStart(2, '0') }
   }
 
-  // Handle check-in button click
   async function handleCheckIn() {
     if (!profile || checkingIn) return
     setCheckingIn(true)
-
     const now = new Date().toISOString()
-    const { error } = await supabase
-      .from('profiles')
-      .update({ last_checkin: now })
-      .eq('id', profile.id)
-
+    const { error } = await supabase.from('profiles').update({ last_checkin: now }).eq('id', profile.id)
     if (!error) {
       setProfile({ ...profile, last_checkin: now })
-      setTimeLeft(24 * 60 * 60) // Reset to 24 hours
+      setTimeLeft(24 * 60 * 60)
+      setJustCheckedIn(true)
+      setTimeout(() => setJustCheckedIn(false), 3000)
     }
     setCheckingIn(false)
   }
 
-  // Save emergency contact email
   async function saveContact() {
     if (!profile || !contactEmail) return
     setSavingContact(true)
-    setContactSaved(false)
-
-    const { error } = await supabase
-      .from('profiles')
-      .update({ emergency_contact_email: contactEmail })
-      .eq('id', profile.id)
-
+    const { error } = await supabase.from('profiles').update({ emergency_contact_email: contactEmail }).eq('id', profile.id)
     if (!error) {
       setProfile({ ...profile, emergency_contact_email: contactEmail })
       setContactSaved(true)
-      setTimeout(() => setContactSaved(false), 3000) // Hide message after 3s
+      setTimeout(() => setContactSaved(false), 3000)
     }
     setSavingContact(false)
   }
 
-  // Sign out
+  async function markAllRead() {
+    const unreadIds = notifications.filter(n => !n.read).map(n => n.id)
+    if (unreadIds.length === 0) return
+    await supabase.from('notifications').update({ read: true }).in('id', unreadIds)
+    setNotifications(notifications.map(n => ({ ...n, read: true })))
+  }
+
   async function signOut() {
     await supabase.auth.signOut()
     router.push('/')
   }
 
-  // Loading state
-  if (loading) {
-    return (
-      <div style={{ textAlign: 'center', marginTop: 120, color: '#6b7280' }}>
-        Loading...
-      </div>
-    )
-  }
+  if (loading) return (
+    <div style={{
+      minHeight: '100vh', background: '#0a0a0a', display: 'flex',
+      alignItems: 'center', justifyContent: 'center'
+    }}>
+      <div style={{ color: '#444', fontSize: 14, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Loading...</div>
+    </div>
+  )
 
-  // Determine timer state for colours
   const isOverdue = timeLeft === 0
-  const isWarning = !isOverdue && timeLeft < 4 * 60 * 60 // less than 4 hours
-  const statusColor = isOverdue ? '#dc2626' : isWarning ? '#d97706' : '#16a34a'
-  const statusBg = isOverdue ? '#fef2f2' : isWarning ? '#fffbeb' : '#f0fdf4'
-  const statusBorder = isOverdue ? '#fca5a5' : isWarning ? '#fcd34d' : '#86efac'
+  const isWarning = !isOverdue && timeLeft < 4 * 60 * 60
+  const statusColor = isOverdue ? '#f87171' : isWarning ? '#fbbf24' : '#4ade80'
+  const { h, m, s } = formatTime(timeLeft)
+  const progress = Math.min(100, (timeLeft / (24 * 60 * 60)) * 100)
+  const circumference = 2 * Math.PI * 90
+  const strokeDashoffset = circumference - (progress / 100) * circumference
+  const unreadCount = notifications.filter(n => !n.read).length
 
   return (
-    <main style={{ maxWidth: 520, margin: '0 auto', padding: '32px 20px' }}>
+    <main style={{
+      minHeight: '100vh', background: '#0a0a0a', color: 'white',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    }}>
 
-      {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 32
+      {/* NAV */}
+      <nav style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '16px 28px', borderBottom: '1px solid #1a1a1a',
+        background: 'rgba(10,10,10,0.9)', backdropFilter: 'blur(12px)',
+        position: 'sticky', top: 0, zIndex: 100
       }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>🛡️ Lil Lifeline</h1>
-          <p style={{ fontSize: 13, color: '#6b7280', margin: '2px 0 0' }}>
-            {profile?.email}
-          </p>
+        <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.3px' }}>Lil Lifeline</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ fontSize: 13, color: '#444' }}>{profile?.email}</div>
+
+          {/* NOTIFICATION BELL */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => { setShowNotifications(!showNotifications); if (!showNotifications) markAllRead() }}
+              style={{
+                padding: '7px 10px', borderRadius: 8,
+                border: `1px solid ${unreadCount > 0 ? 'rgba(251,191,36,0.4)' : '#222'}`,
+                background: unreadCount > 0 ? 'rgba(251,191,36,0.08)' : 'transparent',
+                cursor: 'pointer', fontSize: 16, position: 'relative',
+                color: unreadCount > 0 ? '#fbbf24' : '#555'
+              }}
+            >
+              🔔
+              {unreadCount > 0 && (
+                <div style={{
+                  position: 'absolute', top: -4, right: -4,
+                  width: 18, height: 18, borderRadius: '50%',
+                  background: '#f87171', fontSize: 10, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: 'white', border: '2px solid #0a0a0a'
+                }}>{unreadCount}</div>
+              )}
+            </button>
+
+            {/* NOTIFICATION DROPDOWN */}
+            {showNotifications && (
+              <div style={{
+                position: 'absolute', right: 0, top: 44,
+                width: 340, background: '#111', border: '1px solid #222',
+                borderRadius: 12, overflow: 'hidden',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.6)', zIndex: 200
+              }}>
+                <div style={{
+                  padding: '14px 16px', borderBottom: '1px solid #1a1a1a',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                }}>
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>Notifications</span>
+                  {notifications.length > 0 && (
+                    <span style={{ fontSize: 11, color: '#444' }}>
+                      {notifications.length} alert{notifications.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {notifications.length === 0 ? (
+                  <div style={{ padding: '28px 16px', textAlign: 'center', color: '#444', fontSize: 13 }}>
+                    No notifications yet
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                    {notifications.map(n => (
+                      <div key={n.id} style={{
+                        padding: '14px 16px', borderBottom: '1px solid #1a1a1a',
+                        background: n.read ? 'transparent' : 'rgba(248,113,113,0.05)'
+                      }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                          <div style={{
+                            width: 8, height: 8, borderRadius: '50%', marginTop: 5, flexShrink: 0,
+                            background: n.read ? '#333' : '#f87171',
+                            boxShadow: n.read ? 'none' : '0 0 6px #f87171'
+                          }} />
+                          <div>
+                            <div style={{ fontSize: 13, color: n.read ? '#555' : '#ddd', lineHeight: 1.5 }}>
+                              {n.message}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#333', marginTop: 4 }}>
+                              {new Date(n.created_at).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ padding: '10px 16px', borderTop: '1px solid #1a1a1a' }}>
+                  <div style={{ fontSize: 11, color: '#333', textAlign: 'center' }}>
+                    {profile?.tier === 'free'
+                      ? 'Upgrade to Pro to send instant email alerts'
+                      : 'Email alerts active'}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button onClick={signOut} style={{
+            padding: '7px 14px', borderRadius: 8, border: '1px solid #222',
+            background: 'transparent', cursor: 'pointer', fontSize: 13,
+            color: '#555', fontFamily: 'inherit'
+          }}>Sign out</button>
         </div>
-        <button
-          onClick={signOut}
-          style={{
-            background: 'none',
-            border: '1px solid #e5e7eb',
-            padding: '7px 14px',
-            borderRadius: 8,
-            cursor: 'pointer',
-            fontSize: 13,
-            color: '#6b7280',
-            fontFamily: 'inherit'
-          }}
-        >
-          Sign out
-        </button>
-      </div>
+      </nav>
 
-      {/* Timer Card — main feature */}
-      <div style={{
-        background: statusBg,
-        border: `2px solid ${statusBorder}`,
-        borderRadius: 20,
-        padding: '40px 28px',
-        textAlign: 'center',
-        marginBottom: 20
-      }}>
-        <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          Next check-in due in
-        </p>
+      {/* Click outside to close notifications */}
+      {showNotifications && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+          onClick={() => setShowNotifications(false)} />
+      )}
 
-        {/* The big countdown clock */}
-        <div style={{
-          fontSize: isOverdue ? 36 : 58,
-          fontWeight: 800,
-          fontFamily: 'monospace',
-          color: statusColor,
-          letterSpacing: '-1px',
-          marginBottom: 6,
-          lineHeight: 1
-        }}>
-          {isOverdue ? 'OVERDUE' : formatTime(timeLeft)}
+      <div style={{ maxWidth: 560, margin: '0 auto', padding: '40px 20px' }}>
+
+        {/* STATUS BADGE */}
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '6px 16px', borderRadius: 20,
+            background: isOverdue ? 'rgba(248,113,113,0.1)' : isWarning ? 'rgba(251,191,36,0.1)' : 'rgba(74,222,128,0.1)',
+            border: `1px solid ${isOverdue ? 'rgba(248,113,113,0.3)' : isWarning ? 'rgba(251,191,36,0.3)' : 'rgba(74,222,128,0.3)'}`,
+          }}>
+            <div style={{
+              width: 7, height: 7, borderRadius: '50%', background: statusColor,
+              boxShadow: `0 0 8px ${statusColor}`
+            }} />
+            <span style={{ fontSize: 13, color: statusColor, fontWeight: 600 }}>
+              {isOverdue ? 'Check-in overdue' : isWarning ? 'Check in soon' : 'You\'re all good'}
+            </span>
+          </div>
         </div>
 
-        {/* Status message */}
-        <p style={{ fontSize: 14, color: statusColor, marginBottom: 28, minHeight: 20 }}>
-          {isOverdue
-            ? '⚠️ Your contact has been notified'
-            : isWarning
-            ? '⏰ Time is running low — check in soon'
-            : '✓ You\'re within your check-in window'}
-        </p>
+        {/* TIMER RING */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 36 }}>
+          <div style={{ position: 'relative', width: 220, height: 220 }}>
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: '50%',
+              background: `radial-gradient(circle, ${statusColor}0a 0%, transparent 70%)`,
+              filter: 'blur(20px)'
+            }} />
+            <svg width="220" height="220" style={{ transform: 'rotate(-90deg)', position: 'relative', zIndex: 1 }}>
+              <circle cx="110" cy="110" r="90" fill="none" stroke="#1a1a1a" strokeWidth="8" />
+              <circle cx="110" cy="110" r="90" fill="none"
+                stroke={statusColor} strokeWidth="8" strokeLinecap="round"
+                strokeDasharray={circumference} strokeDashoffset={strokeDashoffset}
+                style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s ease', filter: `drop-shadow(0 0 8px ${statusColor}88)` }}
+              />
+            </svg>
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex',
+              flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
+            }}>
+              {isOverdue ? (
+                <div style={{ fontSize: 22, fontWeight: 900, color: statusColor, letterSpacing: '-1px' }}>OVERDUE</div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
+                  <span style={{ fontSize: 42, fontWeight: 900, color: 'white', letterSpacing: '-3px', lineHeight: 1 }}>{h}</span>
+                  <span style={{ fontSize: 22, color: '#333', fontWeight: 700 }}>:</span>
+                  <span style={{ fontSize: 42, fontWeight: 900, color: 'white', letterSpacing: '-3px', lineHeight: 1 }}>{m}</span>
+                  <span style={{ fontSize: 22, color: '#333', fontWeight: 700 }}>:</span>
+                  <span style={{ fontSize: 42, fontWeight: 900, color: 'white', letterSpacing: '-3px', lineHeight: 1 }}>{s}</span>
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: '#444', marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                remaining
+              </div>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: '#333', marginTop: 16 }}>
+            Last check-in: <span style={{ color: '#555' }}>
+              {profile ? new Date(profile.last_checkin).toLocaleString() : '—'}
+            </span>
+          </div>
+        </div>
 
-        {/* THE CHECK-IN BUTTON */}
-        <button
-          onClick={handleCheckIn}
-          disabled={checkingIn}
-          style={{
-            padding: '18px 48px',
-            fontSize: 17,
-            fontWeight: 700,
-            background: checkingIn ? '#86efac' : '#16a34a',
-            color: 'white',
-            border: 'none',
-            borderRadius: 14,
-            cursor: checkingIn ? 'not-allowed' : 'pointer',
-            boxShadow: checkingIn ? 'none' : '0 4px 14px rgba(22, 163, 74, 0.35)',
-            transition: 'all 0.2s',
-            fontFamily: 'inherit'
-          }}
-        >
-          {checkingIn ? '...' : "✅  I'm Okay — Check In"}
-        </button>
-
-        {/* Last check-in time */}
-        <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 16 }}>
-          Last check-in: {profile ? new Date(profile.last_checkin).toLocaleString() : '—'}
-        </p>
-      </div>
-
-      {/* Emergency Contact Card */}
-      <div style={{
-        background: 'white',
-        border: '1px solid #e5e7eb',
-        borderRadius: 16,
-        padding: 24
-      }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
-          📬 Emergency Contact
-        </h2>
-        <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14, lineHeight: 1.5 }}>
-          If you miss your 24-hour check-in, this person will automatically receive an email alert.
-        </p>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            type="email"
-            placeholder="their@email.com"
-            value={contactEmail}
-            onChange={e => setContactEmail(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && saveContact()}
-          />
-          <button
-            onClick={saveContact}
-            disabled={savingContact || !contactEmail}
-            style={{
-              padding: '10px 18px',
-              background: savingContact ? '#93c5fd' : '#1d4ed8',
-              color: 'white',
-              border: 'none',
-              borderRadius: 8,
-              cursor: savingContact || !contactEmail ? 'not-allowed' : 'pointer',
-              fontWeight: 600,
-              fontSize: 14,
-              whiteSpace: 'nowrap',
-              fontFamily: 'inherit',
-              flexShrink: 0
-            }}
-          >
-            {savingContact ? '...' : 'Save'}
+        {/* CHECK IN BUTTON */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 40 }}>
+          <button onClick={handleCheckIn} disabled={checkingIn} style={{
+            padding: '18px 56px', fontSize: 17, fontWeight: 800,
+            background: 'transparent',
+            color: justCheckedIn ? '#4ade80' : 'white',
+            border: `2px solid ${justCheckedIn ? '#4ade80' : isOverdue ? '#f87171' : '#333'}`,
+            borderRadius: 14, cursor: checkingIn ? 'not-allowed' : 'pointer',
+            fontFamily: 'inherit', letterSpacing: '-0.3px',
+            boxShadow: justCheckedIn ? '0 0 40px rgba(74,222,128,0.3)' : isOverdue ? '0 0 30px rgba(248,113,113,0.2)' : 'none',
+            transition: 'all 0.3s ease'
+          }}>
+            {checkingIn ? 'Checking in...' : justCheckedIn ? '✓ Checked in!' : "I'm Okay"}
           </button>
         </div>
 
-        {contactSaved && (
-          <p style={{ fontSize: 13, color: '#16a34a', marginTop: 8 }}>
-            ✅ Saved! They will be notified if you miss a check-in.
+        {/* EMERGENCY CONTACT CARD */}
+        <div style={{
+          background: '#111', border: '1px solid #1f1f1f',
+          borderRadius: 16, padding: 24, marginBottom: 16
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8, background: 'rgba(74,222,128,0.1)',
+              border: '1px solid rgba(74,222,128,0.2)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', fontSize: 15
+            }}>📬</div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>Emergency contact</div>
+          </div>
+          <p style={{ fontSize: 13, color: '#444', marginBottom: 16, lineHeight: 1.6 }}>
+            {profile?.tier === 'paid'
+              ? 'If you miss your check-in, this person receives an immediate email alert.'
+              : 'If you miss your check-in, this person gets an in-app notification next time they log in. Upgrade to Pro for instant email alerts.'}
           </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input type="email" placeholder="their@email.com" value={contactEmail}
+              onChange={e => setContactEmail(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && saveContact()}
+              style={{
+                flex: 1, padding: '10px 14px', fontSize: 14,
+                border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none',
+                background: '#0a0a0a', color: 'white', fontFamily: 'inherit'
+              }} />
+            <button onClick={saveContact} disabled={savingContact || !contactEmail} style={{
+              padding: '10px 20px', background: 'transparent',
+              color: contactEmail ? '#4ade80' : '#333',
+              border: `1px solid ${contactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`,
+              borderRadius: 8, cursor: savingContact || !contactEmail ? 'not-allowed' : 'pointer',
+              fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap',
+              fontFamily: 'inherit', transition: 'all 0.2s'
+            }}>
+              {savingContact ? '...' : 'Save'}
+            </button>
+          </div>
+          {contactSaved && <p style={{ fontSize: 13, color: '#4ade80', marginTop: 10 }}>✓ Saved!</p>}
+          {!profile?.emergency_contact_email && !contactSaved && (
+            <p style={{ fontSize: 12, color: '#854d0e', marginTop: 10 }}>⚠ No contact set yet — add one above.</p>
+          )}
+          {profile?.emergency_contact_email && !contactSaved && (
+            <p style={{ fontSize: 12, color: '#444', marginTop: 10 }}>
+              Currently: <span style={{ color: '#555' }}>{profile.emergency_contact_email}</span>
+            </p>
+          )}
+        </div>
+
+        {/* UPGRADE CARD */}
+        {profile?.tier !== 'paid' && (
+          <div style={{
+            background: '#0f0f0f', border: '1px solid rgba(74,222,128,0.15)',
+            borderRadius: 16, padding: 20, boxShadow: '0 0 30px rgba(74,222,128,0.04)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 3 }}>Upgrade to Pro</div>
+                <div style={{ fontSize: 12, color: '#444', lineHeight: 1.6 }}>
+                  Instant email alerts · Multiple contacts · Custom timers
+                </div>
+              </div>
+              <div style={{
+                fontSize: 13, color: '#4ade80', fontWeight: 700,
+                padding: '6px 14px', border: '1px solid rgba(74,222,128,0.2)',
+                borderRadius: 8, background: 'rgba(74,222,128,0.05)'
+              }}>$2.99/mo</div>
+            </div>
+          </div>
         )}
 
-        {profile?.emergency_contact_email && !contactSaved && (
-          <p style={{ fontSize: 13, color: '#6b7280', marginTop: 8 }}>
-            Currently saved: <strong>{profile.emergency_contact_email}</strong>
-          </p>
-        )}
-
-        {!profile?.emergency_contact_email && (
-          <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 8 }}>
-            ⚠️ No emergency contact set. Add one above.
-          </p>
-        )}
-      </div>
-
-      {/* How it works — small explainer */}
-      <div style={{
-        marginTop: 16,
-        padding: '14px 18px',
-        background: '#f9fafb',
-        borderRadius: 10,
-        fontSize: 12,
-        color: '#9ca3af',
-        lineHeight: 1.6
-      }}>
-        <strong style={{ color: '#6b7280' }}>How it works:</strong> Click "I'm Okay" once a day.
-        If 24 hours pass without a check-in, your emergency contact receives an email.
-        The timer resets every time you check in.
       </div>
     </main>
   )
