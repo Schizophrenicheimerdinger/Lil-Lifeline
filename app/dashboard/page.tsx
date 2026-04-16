@@ -34,11 +34,26 @@ export default function Dashboard() {
   const router = useRouter()
 
   const loadProfile = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/'); return }
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-    if (error) { setLoading(false); return }
-    if (data) { setProfile(data); setContactEmail(data.emergency_contact_email || '') }
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      router.push('/')
+      return
+    }
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+    if (error) {
+      console.error('Profile error:', error)
+      setLoading(false)
+      router.push('/')
+      return
+    }
+    if (data) {
+      setProfile(data)
+      setContactEmail(data.emergency_contact_email || '')
+    }
     setLoading(false)
   }, [router])
 
