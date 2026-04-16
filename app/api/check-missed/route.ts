@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const cutoff = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
 
   const { data: overdueUsers, error: dbError } = await supabaseAdmin
     .from('profiles')
