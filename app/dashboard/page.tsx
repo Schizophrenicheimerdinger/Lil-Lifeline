@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import SideMenu from '../components/SideMenu'
 
 type Profile = {
   id: string
@@ -18,6 +19,12 @@ type Notification = {
   message: string
   read: boolean
   created_at: string
+}
+
+type ContactHistory = {
+  id: string
+  contact_email: string
+  linked_at: string
 }
 
 function BellIcon({ size = 18, color = 'currentColor' }: { size?: number; color?: string }) {
@@ -53,6 +60,7 @@ export default function Dashboard() {
   const [showNotifications, setShowNotifications] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [linkedBy, setLinkedBy] = useState<string[]>([])
+  const [contactHistory, setContactHistory] = useState<ContactHistory[]>([])
   const router = useRouter()
 
   const PHASE1 = 24 * 60 * 60
@@ -82,9 +90,17 @@ export default function Dashboard() {
     if (data) setLinkedBy(data.map((p: { email: string }) => p.email))
   }, [])
 
+  const loadContactHistory = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase.from('contact_history').select('*').eq('user_id', user.id).order('linked_at', { ascending: false }).limit(10)
+    if (data) setContactHistory(data)
+  }, [])
+
   useEffect(() => { loadProfile() }, [loadProfile])
   useEffect(() => { loadNotifications() }, [loadNotifications])
   useEffect(() => { loadLinkedBy() }, [loadLinkedBy])
+  useEffect(() => { loadContactHistory() }, [loadContactHistory])
 
   useEffect(() => {
     if (!profile) return
@@ -130,12 +146,28 @@ export default function Dashboard() {
     setCheckingIn(false)
   }
 
-  async function saveContact() {
-    if (!profile || !contactEmail) return
+  async function saveContact(newEmail?: string) {
+    if (!profile) return
+    const emailToSave = newEmail || contactEmail
+    if (!emailToSave) return
     setSavingContact(true)
-    const { error } = await supabase.from('profiles').update({ emergency_contact_email: contactEmail }).eq('id', profile.id)
+
+    // Save old contact to history if it's different
+    if (profile.emergency_contact_email && profile.emergency_contact_email !== emailToSave) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        await supabase.from('contact_history').insert({
+          user_id: user.id,
+          contact_email: profile.emergency_contact_email
+        })
+        await loadContactHistory()
+      }
+    }
+
+    const { error } = await supabase.from('profiles').update({ emergency_contact_email: emailToSave }).eq('id', profile.id)
     if (!error) {
-      setProfile({ ...profile, emergency_contact_email: contactEmail })
+      setProfile({ ...profile, emergency_contact_email: emailToSave })
+      setContactEmail(emailToSave)
       setContactSaved(true)
       setTimeout(() => setContactSaved(false), 3000)
     }
@@ -213,64 +245,13 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {showMenu && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 300 }} onClick={() => setShowMenu(false)}>
-          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 300, background: '#111', borderRight: '1px solid #1f1f1f', padding: 28, boxShadow: '8px 0 40px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>Menu</div>
-              <button onClick={() => setShowMenu(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
-            </div>
-            <div style={{ marginBottom: 32 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#444', marginBottom: 14 }}>People watching over you</div>
-              {linkedBy.length === 0
-                ? <div style={{ fontSize: 13, color: '#333', lineHeight: 1.6, padding: '12px 14px', background: '#0f0f0f', borderRadius: 10, border: '1px solid #1a1a1a' }}>Nobody has added you as their emergency contact yet.</div>
-                : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {linkedBy.map(email => (
-                      <div key={email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#0f0f0f', borderRadius: 10, border: '1px solid #1a1a1a' }}>
-                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#4ade80', flexShrink: 0 }}>{email[0].toUpperCase()}</div>
-                        <div style={{ fontSize: 13, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>
-                      </div>
-                    ))}
-                  </div>
-              }
-            </div>
-            <div style={{ marginBottom: 32 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#444', marginBottom: 14 }}>Your emergency contact</div>
-              <div style={{ padding: '10px 14px', background: '#0f0f0f', borderRadius: 10, border: '1px solid #1a1a1a' }}>
-                {profile?.emergency_contact_email
-                  ? <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#60a5fa', flexShrink: 0 }}>{profile.emergency_contact_email[0].toUpperCase()}</div>
-                      <div style={{ fontSize: 13, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.emergency_contact_email}</div>
-                    </div>
-                  : <div style={{ fontSize: 13, color: '#333' }}>No contact set yet</div>
-                }
-              </div>
-            </div>
-            <div style={{ marginBottom: 32 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#444', marginBottom: 14 }}>Your plan</div>
-              <div style={{ padding: '12px 14px', background: '#0f0f0f', borderRadius: 10, border: `1px solid ${profile?.tier === 'paid' ? 'rgba(74,222,128,0.2)' : '#1a1a1a'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 13, color: '#666' }}>{profile?.tier === 'paid' ? 'Pro' : 'Free'}</span>
-                {profile?.tier !== 'paid' && <span style={{ fontSize: 12, color: '#4ade80' }}>Upgrade →</span>}
-              </div>
-            </div>
-            <div style={{ flex: 1 }} />
-            <div style={{ borderTop: '1px solid #1a1a1a', paddingTop: 20 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#444', marginBottom: 10 }}>Contact us</div>
-              <a href="mailto:sleushstore@gmail.com" style={{ fontSize: 13, color: '#555', textDecoration: 'none' }}>sleushstore@gmail.com</a>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showNotifications && <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setShowNotifications(false)} />}
 
       <div style={{ maxWidth: 600, margin: '0 auto', padding: '40px 20px' }}>
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderRadius: 20, background: isOverdue ? 'rgba(248,113,113,0.1)' : inGrace ? 'rgba(251,191,36,0.1)' : 'rgba(74,222,128,0.1)', border: `1px solid ${isOverdue ? 'rgba(248,113,113,0.3)' : inGrace ? 'rgba(251,191,36,0.3)' : 'rgba(74,222,128,0.3)'}` }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
-            <span style={{ fontSize: 13, color: statusColor, fontWeight: 600 }}>
-              {isOverdue ? 'Alert sent to your contact' : inGrace ? 'Grace period — check in now' : "You're all good"}
-            </span>
+            <span style={{ fontSize: 13, color: statusColor, fontWeight: 600 }}>{isOverdue ? 'Alert sent to your contact' : inGrace ? 'Grace period — check in now' : "You're all good"}</span>
           </div>
         </div>
 
@@ -279,10 +260,7 @@ export default function Dashboard() {
             <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: `radial-gradient(circle, ${statusColor}12 0%, transparent 70%)`, filter: 'blur(24px)' }} />
             <svg width="290" height="290" style={{ transform: 'rotate(-90deg)', position: 'relative', zIndex: 1 }}>
               <circle cx="145" cy="145" r="120" fill="none" stroke="#1a1a1a" strokeWidth="10" />
-              <circle cx="145" cy="145" r="120" fill="none" stroke={statusColor} strokeWidth="10" strokeLinecap="round"
-                strokeDasharray={circumference} strokeDashoffset={strokeDashoffset}
-                style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s ease', filter: `drop-shadow(0 0 10px ${statusColor}99)` }}
-              />
+              <circle cx="145" cy="145" r="120" fill="none" stroke={statusColor} strokeWidth="10" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s ease', filter: `drop-shadow(0 0 10px ${statusColor}99)` }} />
             </svg>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
               {isOverdue ? (
@@ -337,13 +315,11 @@ export default function Dashboard() {
             </div>
           )}
           <p style={{ fontSize: 13, color: '#444', marginBottom: 14, lineHeight: 1.6 }}>
-            {profile?.tier === 'paid'
-              ? 'This person will receive an immediate email alert if you miss your check-in and grace period.'
-              : 'This person will get an in-app notification next time they log in. Upgrade to Pro to send them an instant email alert instead.'}
+            {profile?.tier === 'paid' ? 'This person will receive an immediate email alert if you miss your check-in and grace period.' : 'This person will get an in-app notification next time they log in. Upgrade to Pro to send them an instant email alert instead.'}
           </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <input type="email" placeholder="their@email.com" value={contactEmail} onChange={e => setContactEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveContact()} style={{ flex: 1, padding: '10px 14px', fontSize: 14, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit' }} />
-            <button onClick={saveContact} disabled={savingContact || !contactEmail} style={{ padding: '10px 20px', background: 'transparent', color: contactEmail ? '#4ade80' : '#333', border: `1px solid ${contactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`, borderRadius: 8, cursor: savingContact || !contactEmail ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', fontFamily: 'inherit', transition: 'all 0.2s' }}>
+            <button onClick={() => saveContact()} disabled={savingContact || !contactEmail} style={{ padding: '10px 20px', background: 'transparent', color: contactEmail ? '#4ade80' : '#333', border: `1px solid ${contactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`, borderRadius: 8, cursor: savingContact || !contactEmail ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', fontFamily: 'inherit', transition: 'all 0.2s' }}>
               {savingContact ? '...' : 'Save'}
             </button>
           </div>
@@ -397,6 +373,18 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {showMenu && (
+        <SideMenu
+          isLoggedIn={true}
+          profile={profile}
+          linkedBy={linkedBy}
+          contactHistory={contactHistory}
+          onClose={() => setShowMenu(false)}
+          currentPage="dashboard"
+          onContactChange={(email) => saveContact(email)}
+        />
+      )}
     </main>
   )
 }
