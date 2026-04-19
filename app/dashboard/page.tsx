@@ -27,6 +27,12 @@ type ContactHistory = {
   linked_at: string
 }
 
+type EmergencyContact = {
+  id: string
+  email: string
+  name: string | null
+}
+
 function BellIcon({ size = 18, color = 'currentColor' }: { size?: number; color?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -61,6 +67,11 @@ export default function Dashboard() {
   const [showMenu, setShowMenu] = useState(false)
   const [linkedBy, setLinkedBy] = useState<string[]>([])
   const [contactHistory, setContactHistory] = useState<ContactHistory[]>([])
+  const [extraContacts, setExtraContacts] = useState<EmergencyContact[]>([])
+  const [newContactEmail, setNewContactEmail] = useState('')
+  const [newContactName, setNewContactName] = useState('')
+  const [addingContact, setAddingContact] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(false)
   const router = useRouter()
 
   const PHASE1 = 24 * 60 * 60
@@ -97,10 +108,18 @@ export default function Dashboard() {
     if (data) setContactHistory(data)
   }, [])
 
+  const loadExtraContacts = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase.from('emergency_contacts').select('*').eq('user_id', user.id).order('created_at', { ascending: true })
+    if (data) setExtraContacts(data)
+  }, [])
+
   useEffect(() => { loadProfile() }, [loadProfile])
   useEffect(() => { loadNotifications() }, [loadNotifications])
   useEffect(() => { loadLinkedBy() }, [loadLinkedBy])
   useEffect(() => { loadContactHistory() }, [loadContactHistory])
+  useEffect(() => { loadExtraContacts() }, [loadExtraContacts])
 
   useEffect(() => {
     if (!profile) return
@@ -151,19 +170,13 @@ export default function Dashboard() {
     const emailToSave = newEmail || contactEmail
     if (!emailToSave) return
     setSavingContact(true)
-
-    // Save old contact to history if it's different
     if (profile.emergency_contact_email && profile.emergency_contact_email !== emailToSave) {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        await supabase.from('contact_history').insert({
-          user_id: user.id,
-          contact_email: profile.emergency_contact_email
-        })
+        await supabase.from('contact_history').insert({ user_id: user.id, contact_email: profile.emergency_contact_email })
         await loadContactHistory()
       }
     }
-
     const { error } = await supabase.from('profiles').update({ emergency_contact_email: emailToSave }).eq('id', profile.id)
     if (!error) {
       setProfile({ ...profile, emergency_contact_email: emailToSave })
@@ -172,6 +185,30 @@ export default function Dashboard() {
       setTimeout(() => setContactSaved(false), 3000)
     }
     setSavingContact(false)
+  }
+
+  async function addExtraContact() {
+    if (!newContactEmail || addingContact) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    setAddingContact(true)
+    const { error } = await supabase.from('emergency_contacts').insert({
+      user_id: user.id,
+      email: newContactEmail,
+      name: newContactName || null
+    })
+    if (!error) {
+      await loadExtraContacts()
+      setNewContactEmail('')
+      setNewContactName('')
+      setShowAddForm(false)
+    }
+    setAddingContact(false)
+  }
+
+  async function removeExtraContact(id: string) {
+    await supabase.from('emergency_contacts').delete().eq('id', id)
+    await loadExtraContacts()
   }
 
   async function markAllRead() {
@@ -194,6 +231,9 @@ export default function Dashboard() {
 
   const unreadCount = notifications.filter(n => !n.read).length
   const hasContact  = !!profile?.emergency_contact_email
+  const isPaid = profile?.tier === 'paid'
+  const maxContacts = isPaid ? 5 : 1
+  const totalContacts = extraContacts.length + (hasContact ? 1 : 0)
 
   return (
     <main style={{ minHeight: '100vh', background: '#0a0a0a', color: 'white', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
@@ -245,9 +285,23 @@ export default function Dashboard() {
         </div>
       </nav>
 
+      {showMenu && (
+        <SideMenu
+          isLoggedIn={true}
+          profile={profile}
+          linkedBy={linkedBy}
+          contactHistory={contactHistory}
+          onClose={() => setShowMenu(false)}
+          currentPage="dashboard"
+          onContactChange={(email) => saveContact(email)}
+        />
+      )}
+
       {showNotifications && <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setShowNotifications(false)} />}
 
       <div style={{ maxWidth: 600, margin: '0 auto', padding: '40px 20px' }}>
+
+        {/* STATUS */}
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderRadius: 20, background: isOverdue ? 'rgba(248,113,113,0.1)' : inGrace ? 'rgba(251,191,36,0.1)' : 'rgba(74,222,128,0.1)', border: `1px solid ${isOverdue ? 'rgba(248,113,113,0.3)' : inGrace ? 'rgba(251,191,36,0.3)' : 'rgba(74,222,128,0.3)'}` }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusColor, boxShadow: `0 0 8px ${statusColor}` }} />
@@ -255,6 +309,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* TIMER */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 40 }}>
           <div style={{ position: 'relative', width: 290, height: 290 }}>
             <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: `radial-gradient(circle, ${statusColor}12 0%, transparent 70%)`, filter: 'blur(24px)' }} />
@@ -287,12 +342,14 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* CHECK IN BUTTON */}
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 48 }}>
           <button onClick={handleCheckIn} disabled={checkingIn} style={{ padding: '20px 72px', fontSize: 18, fontWeight: 800, background: 'transparent', color: justCheckedIn ? '#4ade80' : 'white', border: `2px solid ${justCheckedIn ? '#4ade80' : isOverdue ? '#f87171' : inGrace ? '#fbbf24' : '#2a2a2a'}`, borderRadius: 16, cursor: checkingIn ? 'not-allowed' : 'pointer', fontFamily: 'inherit', letterSpacing: '-0.3px', boxShadow: justCheckedIn ? '0 0 50px rgba(74,222,128,0.35)' : isOverdue ? '0 0 30px rgba(248,113,113,0.25)' : inGrace ? '0 0 30px rgba(251,191,36,0.2)' : 'none', transition: 'all 0.3s ease' }}>
             {checkingIn ? 'Checking in...' : justCheckedIn ? '✓ Checked in!' : "I'm Okay"}
           </button>
         </div>
 
+        {/* EMERGENCY CONTACTS */}
         <div style={{ background: '#111', border: `1px solid ${hasContact ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.35)'}`, borderRadius: 16, padding: 24, marginBottom: 16, boxShadow: hasContact ? 'none' : '0 0 30px rgba(248,113,113,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12, gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -301,7 +358,9 @@ export default function Dashboard() {
               </div>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Who should we alert?</div>
-                <div style={{ fontSize: 12, color: '#444' }}>If you do not check in before the grace period ends</div>
+                <div style={{ fontSize: 12, color: '#444' }}>
+                  {isPaid ? `${totalContacts} of ${maxContacts} contacts added` : 'If you do not check in before the grace period ends'}
+                </div>
               </div>
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: hasContact ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)', border: `1px solid ${hasContact ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.3)'}`, flexShrink: 0 }}>
@@ -309,24 +368,82 @@ export default function Dashboard() {
               <span style={{ fontSize: 11, fontWeight: 600, color: hasContact ? '#4ade80' : '#f87171', whiteSpace: 'nowrap' }}>{hasContact ? 'Contact set' : 'No contact set'}</span>
             </div>
           </div>
+
           {!hasContact && (
             <div style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.15)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#f87171', lineHeight: 1.5 }}>
               Without an emergency contact, nobody will be notified if you miss your check-in.
             </div>
           )}
+
           <p style={{ fontSize: 13, color: '#444', marginBottom: 14, lineHeight: 1.6 }}>
-            {profile?.tier === 'paid' ? 'This person will receive an immediate email alert if you miss your check-in and grace period.' : 'This person will get an in-app notification next time they log in. Upgrade to Pro to send them an instant email alert instead.'}
+            {isPaid ? 'All contacts below will be alerted if you miss your check-in.' : 'This person will get an in-app notification next time they log in. Upgrade to Pro for instant email alerts.'}
           </p>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input type="email" placeholder="their@email.com" value={contactEmail} onChange={e => setContactEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveContact()} style={{ flex: 1, padding: '10px 14px', fontSize: 14, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit' }} />
-            <button onClick={() => saveContact()} disabled={savingContact || !contactEmail} style={{ padding: '10px 20px', background: 'transparent', color: contactEmail ? '#4ade80' : '#333', border: `1px solid ${contactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`, borderRadius: 8, cursor: savingContact || !contactEmail ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', fontFamily: 'inherit', transition: 'all 0.2s' }}>
-              {savingContact ? '...' : 'Save'}
-            </button>
+
+          {/* Primary contact */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Primary contact</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input type="email" placeholder="their@email.com" value={contactEmail} onChange={e => setContactEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveContact()} style={{ flex: 1, padding: '10px 14px', fontSize: 14, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit' }} />
+              <button onClick={() => saveContact()} disabled={savingContact || !contactEmail} style={{ padding: '10px 20px', background: 'transparent', color: contactEmail ? '#4ade80' : '#333', border: `1px solid ${contactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`, borderRadius: 8, cursor: savingContact || !contactEmail ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
+                {savingContact ? '...' : 'Save'}
+              </button>
+            </div>
+            {contactSaved && <p style={{ fontSize: 13, color: '#4ade80', marginTop: 8 }}>✓ Saved!</p>}
           </div>
-          {contactSaved && <p style={{ fontSize: 13, color: '#4ade80', marginTop: 10 }}>Saved!</p>}
-          {hasContact && !contactSaved && <p style={{ fontSize: 12, color: '#3a3a3a', marginTop: 10 }}>Currently: <span style={{ color: '#555' }}>{profile?.emergency_contact_email}</span></p>}
+
+          {/* Extra contacts — Pro only */}
+          {isPaid && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Additional contacts</div>
+
+              {extraContacts.map(c => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#0f0f0f', borderRadius: 10, border: '1px solid #1f1f1f', marginBottom: 8 }}>
+                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#4ade80', flexShrink: 0 }}>
+                    {(c.name || c.email)[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {c.name && <div style={{ fontSize: 13, fontWeight: 600, color: '#ccc' }}>{c.name}</div>}
+                    <div style={{ fontSize: 12, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</div>
+                  </div>
+                  <button onClick={() => removeExtraContact(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#444', fontSize: 18, lineHeight: 1, padding: '4px', flexShrink: 0 }}>×</button>
+                </div>
+              ))}
+
+              {totalContacts < maxContacts && (
+                <>
+                  {!showAddForm ? (
+                    <button onClick={() => setShowAddForm(true)} style={{ width: '100%', padding: '10px', background: 'transparent', border: '1px dashed #2a2a2a', borderRadius: 10, cursor: 'pointer', color: '#444', fontSize: 13, fontFamily: 'inherit', marginTop: 4 }}>
+                      + Add another contact
+                    </button>
+                  ) : (
+                    <div style={{ background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10, padding: 14, marginTop: 4 }}>
+                      <input type="text" placeholder="Name (optional)" value={newContactName} onChange={e => setNewContactName(e.target.value)} style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit', marginBottom: 8 }} />
+                      <input type="email" placeholder="Email address" value={newContactEmail} onChange={e => setNewContactEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && addExtraContact()} style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit', marginBottom: 10 }} />
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => { setShowAddForm(false); setNewContactEmail(''); setNewContactName('') }} style={{ flex: 1, padding: '9px', background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 8, cursor: 'pointer', color: '#555', fontSize: 13, fontFamily: 'inherit' }}>Cancel</button>
+                        <button onClick={addExtraContact} disabled={addingContact || !newContactEmail} style={{ flex: 1, padding: '9px', background: 'transparent', border: `1px solid ${newContactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`, borderRadius: 8, cursor: addingContact || !newContactEmail ? 'not-allowed' : 'pointer', color: newContactEmail ? '#4ade80' : '#333', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>
+                          {addingContact ? '...' : 'Add'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {totalContacts >= maxContacts && (
+                <div style={{ fontSize: 12, color: '#444', textAlign: 'center', marginTop: 8 }}>Maximum {maxContacts} contacts reached</div>
+              )}
+            </div>
+          )}
+
+          {!isPaid && (
+            <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(74,222,128,0.04)', border: '1px solid rgba(74,222,128,0.1)', borderRadius: 8, fontSize: 12, color: '#444' }}>
+              Upgrade to Pro to add up to 5 emergency contacts.
+            </div>
+          )}
         </div>
 
+        {/* PRICING CARDS */}
         <div style={{ marginTop: 48 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#333', textAlign: 'center', marginBottom: 20 }}>Upgrade your plan</div>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
@@ -343,24 +460,24 @@ export default function Dashboard() {
               ))}
             </div>
             <div style={{ flex: 1, minWidth: 160, background: '#0f0f0f', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 14, padding: 20, boxShadow: '0 0 28px rgba(74,222,128,0.07)', position: 'relative' }}>
-  <div style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: '#16a34a', color: 'white', fontSize: 10, fontWeight: 700, padding: '3px 12px', borderRadius: 20, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>MOST POPULAR</div>
-  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-    <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-    </div>
-    <div style={{ fontSize: 13, fontWeight: 600, color: '#4ade80' }}>Pro</div>
-  </div>
-  <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-1.5px', marginBottom: 2, color: 'white' }}>$2.99</div>
-  <div style={{ fontSize: 11, color: '#4ade80', marginBottom: 14 }}>or $24.99/yr — save $11</div>
-  {['Up to 5 contacts', 'Instant email alerts', 'Custom timers', 'Check-in history'].map(f => (
-    <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 7, fontSize: 12, color: '#666' }}><span style={{ color: '#4ade80' }}>✓</span>{f}</div>
-  ))}
-  {profile?.tier === 'paid' ? (
-    <div style={{ marginTop: 22, padding: 11, fontSize: 13, textAlign: 'center', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8 }}>✓ Your current plan</div>
-  ) : (
-    <button onClick={async () => { const res = await fetch('/api/create-checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: profile?.id, email: profile?.email }) }); const { url } = await res.json(); if (url) window.location.href = url; }} style={{ width: '100%', marginTop: 22, padding: 11, fontSize: 14, fontWeight: 600, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 8, cursor: 'pointer', color: '#4ade80', fontFamily: 'inherit' }}>Upgrade to Pro →</button>
-  )}
-</div>
+              <div style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: '#16a34a', color: 'white', fontSize: 10, fontWeight: 700, padding: '3px 12px', borderRadius: 20, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>MOST POPULAR</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#4ade80' }}>Pro</div>
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-1.5px', marginBottom: 2, color: 'white' }}>$2.99</div>
+              <div style={{ fontSize: 11, color: '#4ade80', marginBottom: 14 }}>or $24.99/yr — save $11</div>
+              {['Up to 5 contacts', 'Instant email alerts', 'Custom timers', 'Check-in history'].map(f => (
+                <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 7, fontSize: 12, color: '#666' }}><span style={{ color: '#4ade80' }}>✓</span>{f}</div>
+              ))}
+              {isPaid ? (
+                <div style={{ marginTop: 22, padding: 11, fontSize: 13, textAlign: 'center', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8 }}>✓ Your current plan</div>
+              ) : (
+                <button onClick={async () => { const res = await fetch('/api/create-checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: profile?.id, email: profile?.email }) }); const { url } = await res.json(); if (url) window.location.href = url; }} style={{ width: '100%', marginTop: 22, padding: 11, fontSize: 14, fontWeight: 600, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 8, cursor: 'pointer', color: '#4ade80', fontFamily: 'inherit' }}>Upgrade to Pro →</button>
+              )}
+            </div>
             <div style={{ flex: 1, minWidth: 160, background: '#0f0f0f', border: '1px solid rgba(96,165,250,0.3)', borderRadius: 14, padding: 20, boxShadow: '0 0 28px rgba(96,165,250,0.07)', position: 'relative' }}>
               <div style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: '#1d4ed8', color: 'white', fontSize: 10, fontWeight: 700, padding: '3px 12px', borderRadius: 20, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>BEST VALUE</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -374,22 +491,12 @@ export default function Dashboard() {
               {['Everything in Pro', '5 member accounts', 'Family dashboard', 'Group alerts'].map(f => (
                 <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 7, fontSize: 12, color: '#666' }}><span style={{ color: '#60a5fa' }}>✓</span>{f}</div>
               ))}
+              <button disabled style={{ width: '100%', marginTop: 22, padding: 11, fontSize: 14, fontWeight: 600, background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.25)', borderRadius: 8, cursor: 'not-allowed', color: '#60a5fa', fontFamily: 'inherit' }}>Coming soon</button>
             </div>
           </div>
         </div>
-      </div>
 
-      {showMenu && (
-        <SideMenu
-          isLoggedIn={true}
-          profile={profile}
-          linkedBy={linkedBy}
-          contactHistory={contactHistory}
-          onClose={() => setShowMenu(false)}
-          currentPage="dashboard"
-          onContactChange={(email) => saveContact(email)}
-        />
-      )}
+      </div>
     </main>
   )
 }
