@@ -11,6 +11,10 @@ type Profile = {
   emergency_contact_email: string | null
   last_checkin: string
   tier: string
+  timer_mode: string
+  timer_duration_hours: number
+  timer_fixed_time: string | null
+  grace_period_minutes: number
 }
 
 type Notification = {
@@ -53,9 +57,55 @@ function PersonAlertIcon({ size = 20 }: { size?: number }) {
   )
 }
 
+function getTimerStatus(profile: Profile): { phase: 'ok' | 'grace' | 'overdue'; displaySeconds: number; totalSeconds: number } {
+  const now = Date.now()
+  const lastCI = new Date(profile.last_checkin).getTime()
+  const graceMs = profile.grace_period_minutes * 60 * 1000
+
+  if (profile.timer_mode === 'fixed' && profile.timer_fixed_time) {
+    const [hours, minutes] = profile.timer_fixed_time.split(':').map(Number)
+
+    const todayDeadline = new Date()
+    todayDeadline.setHours(hours, minutes, 0, 0)
+
+    const yesterdayDeadline = new Date(todayDeadline)
+    yesterdayDeadline.setDate(yesterdayDeadline.getDate() - 1)
+
+    // Which deadline are we working with?
+    let relevantDeadline: Date
+    if (lastCI > yesterdayDeadline.getTime()) {
+      relevantDeadline = todayDeadline
+    } else {
+      relevantDeadline = yesterdayDeadline
+    }
+
+    const msFromDeadline = now - relevantDeadline.getTime()
+
+    if (msFromDeadline < 0) {
+      return { phase: 'ok', displaySeconds: Math.floor(-msFromDeadline / 1000), totalSeconds: Math.floor((relevantDeadline.getTime() - new Date(relevantDeadline).setHours(0,0,0,0)) / 1000) }
+    } else if (msFromDeadline < graceMs) {
+      return { phase: 'grace', displaySeconds: Math.floor((graceMs - msFromDeadline) / 1000), totalSeconds: profile.grace_period_minutes * 60 }
+    } else {
+      return { phase: 'overdue', displaySeconds: 0, totalSeconds: 0 }
+    }
+  } else {
+    // Duration mode
+    const durationMs = profile.timer_duration_hours * 60 * 60 * 1000
+    const elapsed = now - lastCI
+
+    if (elapsed < durationMs) {
+      return { phase: 'ok', displaySeconds: Math.floor((durationMs - elapsed) / 1000), totalSeconds: profile.timer_duration_hours * 3600 }
+    } else if (elapsed < durationMs + graceMs) {
+      return { phase: 'grace', displaySeconds: Math.floor((durationMs + graceMs - elapsed) / 1000), totalSeconds: profile.grace_period_minutes * 60 }
+    } else {
+      return { phase: 'overdue', displaySeconds: 0, totalSeconds: 0 }
+    }
+  }
+}
+
 export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [elapsed, setElapsed] = useState(0)
+  const [timerStatus, setTimerStatus] = useState<{ phase: 'ok' | 'grace' | 'overdue'; displaySeconds: number; totalSeconds: number }>({ phase: 'ok', displaySeconds: 86400, totalSeconds: 86400 })
   const [loading, setLoading] = useState(true)
   const [checkingIn, setCheckingIn] = useState(false)
   const [justCheckedIn, setJustCheckedIn] = useState(false)
@@ -65,6 +115,7 @@ export default function Dashboard() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [showNotifications, setShowNotifications] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
+  const [showTimerSettings, setShowTimerSettings] = useState(false)
   const [linkedBy, setLinkedBy] = useState<string[]>([])
   const [contactHistory, setContactHistory] = useState<ContactHistory[]>([])
   const [extraContacts, setExtraContacts] = useState<EmergencyContact[]>([])
@@ -72,18 +123,27 @@ export default function Dashboard() {
   const [newContactName, setNewContactName] = useState('')
   const [addingContact, setAddingContact] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [savingTimer, setSavingTimer] = useState(false)
+  // Local timer settings state
+  const [localTimerMode, setLocalTimerMode] = useState('duration')
+  const [localDurationHours, setLocalDurationHours] = useState(24)
+  const [localFixedTime, setLocalFixedTime] = useState('09:00')
+  const [localGraceMinutes, setLocalGraceMinutes] = useState(60)
   const router = useRouter()
-
-  const PHASE1 = 24 * 60 * 60
-  const GRACE  =  1 * 60 * 60
-  const TOTAL  = PHASE1 + GRACE
 
   const loadProfile = useCallback(async () => {
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError || !user) { router.push('/'); return }
     const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single()
     if (error) { setLoading(false); router.push('/'); return }
-    if (data) { setProfile(data); setContactEmail(data.emergency_contact_email || '') }
+    if (data) {
+      setProfile(data)
+      setContactEmail(data.emergency_contact_email || '')
+      setLocalTimerMode(data.timer_mode || 'duration')
+      setLocalDurationHours(data.timer_duration_hours || 24)
+      setLocalFixedTime(data.timer_fixed_time || '09:00')
+      setLocalGraceMinutes(data.grace_period_minutes || 60)
+    }
     setLoading(false)
   }, [router])
 
@@ -123,46 +183,67 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!profile) return
-    const update = () => {
-      const secs = Math.floor((Date.now() - new Date(profile.last_checkin).getTime()) / 1000)
-      setElapsed(Math.min(secs, TOTAL))
-    }
+    const update = () => setTimerStatus(getTimerStatus(profile))
     update()
     const interval = setInterval(update, 1000)
     return () => clearInterval(interval)
-  }, [profile, TOTAL])
+  }, [profile])
 
-  const inGrace    = elapsed >= PHASE1
-  const isOverdue  = elapsed >= TOTAL
-  const phase1Left = Math.max(0, PHASE1 - elapsed)
-  const graceLeft  = Math.max(0, TOTAL - elapsed)
-  const graceProgress = inGrace ? (graceLeft / GRACE) : 1
-  const statusColor = isOverdue ? '#f87171' : inGrace
-    ? `rgb(${Math.round(251 + (248 - 251) * (1 - graceProgress))}, ${Math.round(191 + (113 - 191) * (1 - graceProgress))}, 36)`
-    : '#4ade80'
+  const { phase, displaySeconds, totalSeconds } = timerStatus
+  const isOverdue = phase === 'overdue'
+  const inGrace = phase === 'grace'
+  const statusColor = isOverdue ? '#f87171' : inGrace ? '#fbbf24' : '#4ade80'
 
   function pad(n: number) { return String(n).padStart(2, '0') }
   function fmt(secs: number) {
     return { h: pad(Math.floor(secs / 3600)), m: pad(Math.floor((secs % 3600) / 60)), s: pad(secs % 60) }
   }
 
-  const display  = inGrace ? fmt(graceLeft) : fmt(phase1Left)
-  const progress = inGrace ? (graceLeft / GRACE) * 100 : (phase1Left / PHASE1) * 100
-  const circumference    = 2 * Math.PI * 120
-  const strokeDashoffset = circumference - (Math.min(100, progress) / 100) * circumference
+  const display = fmt(displaySeconds)
+  const progress = totalSeconds > 0 ? Math.min(100, (displaySeconds / totalSeconds) * 100) : 0
+  const circumference = 2 * Math.PI * 120
+  const strokeDashoffset = circumference - (progress / 100) * circumference
 
   async function handleCheckIn() {
     if (!profile || checkingIn) return
     setCheckingIn(true)
     const now = new Date().toISOString()
+    const wasLate = inGrace
+
     const { error } = await supabase.from('profiles').update({ last_checkin: now }).eq('id', profile.id)
     if (!error) {
+      // Record in history
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        await supabase.from('checkin_history').insert({
+          user_id: user.id,
+          checked_in_at: now,
+          timer_mode: profile.timer_mode,
+          was_late: wasLate
+        })
+      }
       setProfile({ ...profile, last_checkin: now })
-      setElapsed(0)
       setJustCheckedIn(true)
       setTimeout(() => setJustCheckedIn(false), 3000)
     }
     setCheckingIn(false)
+  }
+
+  async function saveTimerSettings() {
+    if (!profile) return
+    setSavingTimer(true)
+    const updates = {
+      timer_mode: localTimerMode,
+      timer_duration_hours: localDurationHours,
+      timer_fixed_time: localTimerMode === 'fixed' ? localFixedTime : null,
+      grace_period_minutes: localGraceMinutes
+    }
+    const { error } = await supabase.from('profiles').update(updates).eq('id', profile.id)
+    if (!error) {
+      setProfile({ ...profile, ...updates })
+      setShowTimerSettings(false)
+    }
+    setSavingTimer(false)
   }
 
   async function saveContact(newEmail?: string) {
@@ -192,17 +273,8 @@ export default function Dashboard() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     setAddingContact(true)
-    const { error } = await supabase.from('emergency_contacts').insert({
-      user_id: user.id,
-      email: newContactEmail,
-      name: newContactName || null
-    })
-    if (!error) {
-      await loadExtraContacts()
-      setNewContactEmail('')
-      setNewContactName('')
-      setShowAddForm(false)
-    }
+    const { error } = await supabase.from('emergency_contacts').insert({ user_id: user.id, email: newContactEmail, name: newContactName || null })
+    if (!error) { await loadExtraContacts(); setNewContactEmail(''); setNewContactName(''); setShowAddForm(false) }
     setAddingContact(false)
   }
 
@@ -230,7 +302,7 @@ export default function Dashboard() {
   )
 
   const unreadCount = notifications.filter(n => !n.read).length
-  const hasContact  = !!profile?.emergency_contact_email
+  const hasContact = !!profile?.emergency_contact_email
   const isPaid = profile?.tier === 'paid'
   const maxContacts = isPaid ? 5 : 1
   const totalContacts = extraContacts.length + (hasContact ? 1 : 0)
@@ -246,8 +318,14 @@ export default function Dashboard() {
           </button>
           <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.3px' }}>Lil Lifeline</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ fontSize: 13, color: '#444' }}>{profile?.email}</div>
+          {isPaid && (
+            <button onClick={() => router.push('/dashboard/history')} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #222', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#555', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+              History
+            </button>
+          )}
           <div style={{ position: 'relative' }}>
             <button onClick={() => { setShowNotifications(!showNotifications); if (!showNotifications) markAllRead() }} style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${unreadCount > 0 ? 'rgba(251,191,36,0.4)' : '#222'}`, background: unreadCount > 0 ? 'rgba(251,191,36,0.08)' : 'transparent', cursor: 'pointer', position: 'relative', color: unreadCount > 0 ? '#fbbf24' : '#555', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <BellIcon size={17} color={unreadCount > 0 ? '#fbbf24' : '#555'} />
@@ -276,7 +354,7 @@ export default function Dashboard() {
                     </div>
                 }
                 <div style={{ padding: '10px 16px', borderTop: '1px solid #1a1a1a' }}>
-                  <div style={{ fontSize: 11, color: '#333', textAlign: 'center' }}>{profile?.tier === 'free' ? 'Upgrade to Pro for instant email alerts' : 'Email alerts active'}</div>
+                  <div style={{ fontSize: 11, color: '#333', textAlign: 'center' }}>{isPaid ? 'Email alerts active' : 'Upgrade to Pro for instant email alerts'}</div>
                 </div>
               </div>
             )}
@@ -286,18 +364,73 @@ export default function Dashboard() {
       </nav>
 
       {showMenu && (
-        <SideMenu
-          isLoggedIn={true}
-          profile={profile}
-          linkedBy={linkedBy}
-          contactHistory={contactHistory}
-          onClose={() => setShowMenu(false)}
-          currentPage="dashboard"
-          onContactChange={(email) => saveContact(email)}
-        />
+        <SideMenu isLoggedIn={true} profile={profile} linkedBy={linkedBy} contactHistory={contactHistory} onClose={() => setShowMenu(false)} currentPage="dashboard" onContactChange={(email) => saveContact(email)} />
       )}
-
       {showNotifications && <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setShowNotifications(false)} />}
+
+      {/* TIMER SETTINGS MODAL */}
+      {showTimerSettings && isPaid && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ position: 'absolute', inset: 0, backdropFilter: 'blur(10px)', background: 'rgba(0,0,0,0.75)' }} onClick={() => setShowTimerSettings(false)} />
+          <div style={{ position: 'relative', background: '#111', border: '1px solid #2a2a2a', borderRadius: 16, padding: 28, width: '100%', maxWidth: 420, zIndex: 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>Timer Settings</h3>
+              <button onClick={() => setShowTimerSettings(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: 22, padding: 0, lineHeight: 1 }}>×</button>
+            </div>
+
+            {/* Timer mode */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Timer mode</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[{ value: 'duration', label: 'Duration', desc: 'e.g. every 24 hours' }, { value: 'fixed', label: 'Fixed time', desc: 'e.g. check in by 6pm' }].map(m => (
+                  <button key={m.value} onClick={() => setLocalTimerMode(m.value)} style={{ flex: 1, padding: '12px', background: localTimerMode === m.value ? 'rgba(74,222,128,0.08)' : '#0f0f0f', border: `1px solid ${localTimerMode === m.value ? 'rgba(74,222,128,0.4)' : '#2a2a2a'}`, borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: localTimerMode === m.value ? '#4ade80' : '#888', marginBottom: 3 }}>{m.label}</div>
+                    <div style={{ fontSize: 11, color: '#444' }}>{m.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Duration settings */}
+            {localTimerMode === 'duration' && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Check-in interval</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                  {[12, 24, 36, 48, 60, 72, 96, 120].map(h => (
+                    <button key={h} onClick={() => setLocalDurationHours(h)} style={{ padding: '10px 6px', background: localDurationHours === h ? 'rgba(74,222,128,0.08)' : '#0f0f0f', border: `1px solid ${localDurationHours === h ? 'rgba(74,222,128,0.4)' : '#2a2a2a'}`, borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: localDurationHours === h ? '#4ade80' : '#666', fontFamily: 'inherit' }}>{h}h</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Fixed time settings */}
+            {localTimerMode === 'fixed' && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Daily check-in deadline</div>
+                <input type="time" value={localFixedTime} onChange={e => setLocalFixedTime(e.target.value)} style={{ width: '100%', padding: '12px 14px', fontSize: 16, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit' }} />
+                <div style={{ fontSize: 12, color: '#444', marginTop: 8 }}>You must check in before this time every day.</div>
+              </div>
+            )}
+
+            {/* Grace period */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Grace period</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                {[30, 60, 90, 120, 180, 240, 360, 480].map(m => (
+                  <button key={m} onClick={() => setLocalGraceMinutes(m)} style={{ padding: '10px 6px', background: localGraceMinutes === m ? 'rgba(74,222,128,0.08)' : '#0f0f0f', border: `1px solid ${localGraceMinutes === m ? 'rgba(74,222,128,0.4)' : '#2a2a2a'}`, borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: localGraceMinutes === m ? '#4ade80' : '#666', fontFamily: 'inherit' }}>
+                    {m < 60 ? `${m}m` : `${m/60}h`}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: 12, color: '#444', marginTop: 8 }}>Extra time before your contact is alerted.</div>
+            </div>
+
+            <button onClick={saveTimerSettings} disabled={savingTimer} style={{ width: '100%', padding: 12, fontSize: 14, fontWeight: 700, background: 'transparent', color: '#4ade80', border: '1px solid rgba(74,222,128,0.4)', borderRadius: 8, cursor: savingTimer ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+              {savingTimer ? 'Saving...' : 'Save settings'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ maxWidth: 600, margin: '0 auto', padding: '40px 20px' }}>
 
@@ -331,15 +464,28 @@ export default function Dashboard() {
               )}
               <div style={{ fontSize: 11, color: '#444', marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>remaining</div>
               {inGrace && !isOverdue && <div style={{ fontSize: 10, color: '#fbbf24', marginTop: 4, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Grace Period</div>}
-              {!inGrace && !isOverdue && <div style={{ fontSize: 10, color: '#333', marginTop: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Phase 1 · 1hr grace after</div>}
+              {!inGrace && !isOverdue && (
+                <div style={{ fontSize: 10, color: '#333', marginTop: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  {profile?.timer_mode === 'fixed' ? `Daily by ${profile.timer_fixed_time}` : `${profile?.timer_duration_hours}h timer`}
+                </div>
+              )}
             </div>
           </div>
+
           <div style={{ marginTop: 14, textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: inGrace ? '#fbbf24' : '#3a3a3a', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
-              {isOverdue ? 'Overdue' : inGrace ? 'Phase 2 — Grace Period' : 'Phase 1 — Check-in Window'}
+              {isOverdue ? 'Overdue' : inGrace ? `Grace Period — ${profile?.grace_period_minutes}min` : 'Check-in Window'}
             </div>
             <div style={{ fontSize: 12, color: '#2a2a2a' }}>Last check-in: <span style={{ color: '#555' }}>{profile ? new Date(profile.last_checkin).toLocaleString() : '—'}</span></div>
           </div>
+
+          {/* Timer settings button for Pro */}
+          {isPaid && (
+            <button onClick={() => setShowTimerSettings(true)} style={{ marginTop: 12, padding: '7px 16px', background: 'transparent', border: '1px solid #222', borderRadius: 8, cursor: 'pointer', fontSize: 12, color: '#444', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 0-14.14 0M4.93 4.93a10 10 0 0 0 0 14.14m14.14 0a10 10 0 0 0 0-14.14"/></svg>
+              Adjust timer settings
+            </button>
+          )}
         </div>
 
         {/* CHECK IN BUTTON */}
@@ -358,9 +504,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Who should we alert?</div>
-                <div style={{ fontSize: 12, color: '#444' }}>
-                  {isPaid ? `${totalContacts} of ${maxContacts} contacts added` : 'If you do not check in before the grace period ends'}
-                </div>
+                <div style={{ fontSize: 12, color: '#444' }}>{isPaid ? `${totalContacts} of ${maxContacts} contacts` : 'If you do not check in before the grace period ends'}</div>
               </div>
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: hasContact ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)', border: `1px solid ${hasContact ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.3)'}`, flexShrink: 0 }}>
@@ -376,10 +520,9 @@ export default function Dashboard() {
           )}
 
           <p style={{ fontSize: 13, color: '#444', marginBottom: 14, lineHeight: 1.6 }}>
-            {isPaid ? 'All contacts below will be alerted if you miss your check-in.' : 'This person will get an in-app notification next time they log in. Upgrade to Pro for instant email alerts.'}
+            {isPaid ? 'All contacts below will receive an immediate email alert if you miss your check-in.' : 'This person will get an in-app notification next time they log in. Upgrade to Pro for instant email alerts.'}
           </p>
 
-          {/* Primary contact */}
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Primary contact</div>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -391,16 +534,12 @@ export default function Dashboard() {
             {contactSaved && <p style={{ fontSize: 13, color: '#4ade80', marginTop: 8 }}>✓ Saved!</p>}
           </div>
 
-          {/* Extra contacts — Pro only */}
           {isPaid && (
             <div style={{ marginTop: 16 }}>
               <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Additional contacts</div>
-
               {extraContacts.map(c => (
                 <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#0f0f0f', borderRadius: 10, border: '1px solid #1f1f1f', marginBottom: 8 }}>
-                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#4ade80', flexShrink: 0 }}>
-                    {(c.name || c.email)[0].toUpperCase()}
-                  </div>
+                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#4ade80', flexShrink: 0 }}>{(c.name || c.email)[0].toUpperCase()}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {c.name && <div style={{ fontSize: 13, fontWeight: 600, color: '#ccc' }}>{c.name}</div>}
                     <div style={{ fontSize: 12, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.email}</div>
@@ -408,31 +547,23 @@ export default function Dashboard() {
                   <button onClick={() => removeExtraContact(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#444', fontSize: 18, lineHeight: 1, padding: '4px', flexShrink: 0 }}>×</button>
                 </div>
               ))}
-
               {totalContacts < maxContacts && (
-                <>
-                  {!showAddForm ? (
-                    <button onClick={() => setShowAddForm(true)} style={{ width: '100%', padding: '10px', background: 'transparent', border: '1px dashed #2a2a2a', borderRadius: 10, cursor: 'pointer', color: '#444', fontSize: 13, fontFamily: 'inherit', marginTop: 4 }}>
-                      + Add another contact
-                    </button>
-                  ) : (
-                    <div style={{ background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10, padding: 14, marginTop: 4 }}>
-                      <input type="text" placeholder="Name (optional)" value={newContactName} onChange={e => setNewContactName(e.target.value)} style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit', marginBottom: 8 }} />
-                      <input type="email" placeholder="Email address" value={newContactEmail} onChange={e => setNewContactEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && addExtraContact()} style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit', marginBottom: 10 }} />
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => { setShowAddForm(false); setNewContactEmail(''); setNewContactName('') }} style={{ flex: 1, padding: '9px', background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 8, cursor: 'pointer', color: '#555', fontSize: 13, fontFamily: 'inherit' }}>Cancel</button>
-                        <button onClick={addExtraContact} disabled={addingContact || !newContactEmail} style={{ flex: 1, padding: '9px', background: 'transparent', border: `1px solid ${newContactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`, borderRadius: 8, cursor: addingContact || !newContactEmail ? 'not-allowed' : 'pointer', color: newContactEmail ? '#4ade80' : '#333', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>
-                          {addingContact ? '...' : 'Add'}
-                        </button>
-                      </div>
+                !showAddForm ? (
+                  <button onClick={() => setShowAddForm(true)} style={{ width: '100%', padding: '10px', background: 'transparent', border: '1px dashed #2a2a2a', borderRadius: 10, cursor: 'pointer', color: '#444', fontSize: 13, fontFamily: 'inherit', marginTop: 4 }}>+ Add another contact</button>
+                ) : (
+                  <div style={{ background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 10, padding: 14, marginTop: 4 }}>
+                    <input type="text" placeholder="Name (optional)" value={newContactName} onChange={e => setNewContactName(e.target.value)} style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit', marginBottom: 8 }} />
+                    <input type="email" placeholder="Email address" value={newContactEmail} onChange={e => setNewContactEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && addExtraContact()} style={{ width: '100%', padding: '9px 12px', fontSize: 13, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit', marginBottom: 10 }} />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => { setShowAddForm(false); setNewContactEmail(''); setNewContactName('') }} style={{ flex: 1, padding: '9px', background: 'transparent', border: '1px solid #2a2a2a', borderRadius: 8, cursor: 'pointer', color: '#555', fontSize: 13, fontFamily: 'inherit' }}>Cancel</button>
+                      <button onClick={addExtraContact} disabled={addingContact || !newContactEmail} style={{ flex: 1, padding: '9px', background: 'transparent', border: `1px solid ${newContactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`, borderRadius: 8, cursor: addingContact || !newContactEmail ? 'not-allowed' : 'pointer', color: newContactEmail ? '#4ade80' : '#333', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>
+                        {addingContact ? '...' : 'Add'}
+                      </button>
                     </div>
-                  )}
-                </>
+                  </div>
+                )
               )}
-
-              {totalContacts >= maxContacts && (
-                <div style={{ fontSize: 12, color: '#444', textAlign: 'center', marginTop: 8 }}>Maximum {maxContacts} contacts reached</div>
-              )}
+              {totalContacts >= maxContacts && <div style={{ fontSize: 12, color: '#444', textAlign: 'center', marginTop: 8 }}>Maximum {maxContacts} contacts reached</div>}
             </div>
           )}
 
