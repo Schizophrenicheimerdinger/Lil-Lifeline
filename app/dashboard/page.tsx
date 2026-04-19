@@ -343,19 +343,24 @@ export default function Dashboard() {
               ))}
             </div>
             <div style={{ flex: 1, minWidth: 160, background: '#0f0f0f', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 14, padding: 20, boxShadow: '0 0 28px rgba(74,222,128,0.07)', position: 'relative' }}>
-              <div style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: '#16a34a', color: 'white', fontSize: 10, fontWeight: 700, padding: '3px 12px', borderRadius: 20, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>COMING SOON</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#4ade80' }}>Pro</div>
-              </div>
-              <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-1.5px', marginBottom: 2, color: 'white' }}>$2.99</div>
-              <div style={{ fontSize: 11, color: '#4ade80', marginBottom: 14 }}>or $24.99/yr — save $11</div>
-              {['Up to 5 contacts', 'Instant email alerts', 'Custom timers', 'Check-in history'].map(f => (
-                <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 7, fontSize: 12, color: '#666' }}><span style={{ color: '#4ade80' }}>✓</span>{f}</div>
-              ))}
-            </div>
+  <div style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: '#16a34a', color: 'white', fontSize: 10, fontWeight: 700, padding: '3px 12px', borderRadius: 20, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>MOST POPULAR</div>
+  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+    <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    </div>
+    <div style={{ fontSize: 13, fontWeight: 600, color: '#4ade80' }}>Pro</div>
+  </div>
+  <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-1.5px', marginBottom: 2, color: 'white' }}>$2.99</div>
+  <div style={{ fontSize: 11, color: '#4ade80', marginBottom: 14 }}>or $24.99/yr — save $11</div>
+  {['Up to 5 contacts', 'Instant email alerts', 'Custom timers', 'Check-in history'].map(f => (
+    <div key={f} style={{ display: 'flex', gap: 8, marginBottom: 7, fontSize: 12, color: '#666' }}><span style={{ color: '#4ade80' }}>✓</span>{f}</div>
+  ))}
+  {profile?.tier === 'paid' ? (
+    <div style={{ marginTop: 22, padding: 11, fontSize: 13, textAlign: 'center', color: '#4ade80', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 8 }}>✓ Your current plan</div>
+  ) : (
+    <button onClick={async () => { const res = await fetch('/api/create-checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: profile?.id, email: profile?.email }) }); const { url } = await res.json(); if (url) window.location.href = url; }} style={{ width: '100%', marginTop: 22, padding: 11, fontSize: 14, fontWeight: 600, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 8, cursor: 'pointer', color: '#4ade80', fontFamily: 'inherit' }}>Upgrade to Pro →</button>
+  )}
+</div>
             <div style={{ flex: 1, minWidth: 160, background: '#0f0f0f', border: '1px solid rgba(96,165,250,0.3)', borderRadius: 14, padding: 20, boxShadow: '0 0 28px rgba(96,165,250,0.07)', position: 'relative' }}>
               <div style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: '#1d4ed8', color: 'white', fontSize: 10, fontWeight: 700, padding: '3px 12px', borderRadius: 20, whiteSpace: 'nowrap', letterSpacing: '0.06em' }}>BEST VALUE</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
