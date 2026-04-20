@@ -318,12 +318,10 @@ export default function Dashboard() {
           </button>
           <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.3px' }}>Lil Lifeline</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 13, color: '#444' }}>{profile?.email}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {isPaid && (
-            <button onClick={() => router.push('/dashboard/history')} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #222', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#555', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
-              History
+            <button onClick={() => router.push('/dashboard/history')} style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #222', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
             </button>
           )}
           <div style={{ position: 'relative' }}>
@@ -359,7 +357,7 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          <button onClick={signOut} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #222', background: 'transparent', cursor: 'pointer', fontSize: 13, color: '#555', fontFamily: 'inherit' }}>Sign out</button>
+          <button onClick={signOut} style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #222', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#555', fontFamily: 'inherit' }}>Out</button>
         </div>
       </nav>
 

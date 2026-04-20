@@ -24,4 +24,11 @@ input {
 input:focus {
   border-color: #16a34a;
   box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
+}* {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+nav {
+  overflow: hidden;
 }
