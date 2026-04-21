@@ -123,6 +123,9 @@ export default function Dashboard() {
   const [newContactName, setNewContactName] = useState('')
   const [addingContact, setAddingContact] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [searchResults, setSearchResults] = useState<string[]>([])
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [searching, setSearching] = useState(false)
   const [savingTimer, setSavingTimer] = useState(false)
   // Local timer settings state
   const [localTimerMode, setLocalTimerMode] = useState('duration')
@@ -357,7 +360,7 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          <button onClick={signOut} style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #222', background: 'transparent', cursor: 'pointer', fontSize: 12, color: '#555', fontFamily: 'inherit' }}>Out</button>
+          
         </div>
       </nav>
 
