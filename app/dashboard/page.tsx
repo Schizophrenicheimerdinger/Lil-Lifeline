@@ -526,7 +526,6 @@ export default function Dashboard() {
 
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Primary contact</div>
-            <div style={{ position: 'relative' }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <input type="email" placeholder="their@email.com" value={contactEmail} onChange={e => setContactEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveContact()} style={{ flex: 1, padding: '10px 14px', fontSize: 14, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit' }} />
               <button onClick={() => saveContact()} disabled={savingContact || !contactEmail} style={{ padding: '10px 20px', background: 'transparent', color: contactEmail ? '#4ade80' : '#333', border: `1px solid ${contactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`, borderRadius: 8, cursor: savingContact || !contactEmail ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
