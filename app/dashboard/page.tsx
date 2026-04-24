@@ -526,11 +526,13 @@ export default function Dashboard() {
 
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontSize: 11, color: '#444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Primary contact</div>
+            <div style={{ position: 'relative' }}>
             <div style={{ display: 'flex', gap: 8 }}>
               <input type="email" placeholder="Search by email..." value={contactEmail} onChange={async e => { setContactEmail(e.target.value); if (e.target.value.length >= 2) { setSearching(true); setShowDropdown(true); const res = await fetch(`/api/search-users?q=${encodeURIComponent(e.target.value)}`); const { users } = await res.json(); setSearchResults(users); setSearching(false); } else { setShowDropdown(false); setSearchResults([]); } }} onKeyDown={e => e.key === 'Enter' && saveContact()} onBlur={() => setTimeout(() => setShowDropdown(false), 200)} style={{ flex: 1, padding: '10px 14px', fontSize: 14, border: '1px solid #2a2a2a', borderRadius: 8, outline: 'none', background: '#0a0a0a', color: 'white', fontFamily: 'inherit' }} />
               <button onClick={() => saveContact()} disabled={savingContact || !contactEmail} style={{ padding: '10px 20px', background: 'transparent', color: contactEmail ? '#4ade80' : '#333', border: `1px solid ${contactEmail ? 'rgba(74,222,128,0.4)' : '#222'}`, borderRadius: 8, cursor: savingContact || !contactEmail ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', fontFamily: 'inherit' }}>
                 {savingContact ? '...' : 'Save'}
               </button>
+            </div>
             </div>
             {showDropdown && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, marginTop: 4, zIndex: 50, boxShadow: '0 10px 40px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
