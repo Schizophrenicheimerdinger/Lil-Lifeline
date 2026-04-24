@@ -532,6 +532,23 @@ export default function Dashboard() {
                 {savingContact ? '...' : 'Save'}
               </button>
             </div>
+            {showDropdown && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, marginTop: 4, zIndex: 50, boxShadow: '0 10px 40px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+                {searching ? (
+                  <div style={{ padding: '12px 14px', fontSize: 13, color: '#444' }}>Searching...</div>
+                ) : searchResults.length === 0 ? (
+                  <div style={{ padding: '12px 14px', fontSize: 13, color: '#444' }}>No users found - you can still save any email</div>
+                ) : (
+                  searchResults.map(email => (
+                    <div key={email} onClick={() => { setContactEmail(email); setShowDropdown(false); }} style={{ padding: '12px 14px', fontSize: 13, color: '#888', cursor: 'pointer', borderBottom: '1px solid #1a1a1a', display: 'flex', alignItems: 'center', gap: 10 }} onMouseEnter={e => (e.currentTarget.style.background = '#1a1a1a')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#4ade80', flexShrink: 0 }}>{email[0].toUpperCase()}</div>
+                      {email}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+            {showDropdown && <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setShowDropdown(false)} />}
             {contactSaved && <p style={{ fontSize: 13, color: '#4ade80', marginTop: 8 }}>✓ Saved!</p>}
           </div>
 
