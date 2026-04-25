@@ -70,7 +70,15 @@ export async function GET(request: Request) {
     for (const contactEmail of contactsToNotify) {
       if (user.tier === 'paid') {
         try {
-          await resend.emails.send({
+          // Also send in-app notification for paid users
+      await supabaseAdmin.from('notifications').insert({
+        recipient_email: contactEmail,
+        sender_email: user.email,
+        message: user.email + " hasn't checked in for " + hoursOverdue + " hours. Please reach out to make sure they're okay.",
+        read: false
+      }).catch(() => {})
+
+      await resend.emails.send({
             from: 'Lil Lifeline <alerts@resend.dev>',
             to: contactEmail,
             subject: `⚠️ Check-in alert: ${user.email} hasn't checked in`,
