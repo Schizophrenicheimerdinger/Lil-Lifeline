@@ -535,7 +535,6 @@ export default function Dashboard() {
               </button>
             </div>
             </div>
-            </div>
             {showDropdown && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, marginTop: 4, zIndex: 50, boxShadow: '0 10px 40px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
                 {searching ? (
@@ -553,6 +552,7 @@ export default function Dashboard() {
               </div>
             )}
             {showDropdown && <div style={{ position: 'fixed', inset: 0, zIndex: 49 }} onClick={() => setShowDropdown(false)} />}
+            </div>
             {contactSaved && <p style={{ fontSize: 13, color: '#4ade80', marginTop: 8 }}>✓ Saved!</p>}
           </div>
 
